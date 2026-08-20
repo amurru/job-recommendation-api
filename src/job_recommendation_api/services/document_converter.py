@@ -12,6 +12,7 @@ exists.
 
 from __future__ import annotations
 
+import hashlib
 import io
 from typing import Protocol
 
@@ -21,12 +22,19 @@ from PIL import Image
 from job_recommendation_api.errors import (
     DocumentConversionError,
     InvalidDocumentError,
+    OcrBudgetExceededError,
 )
 from job_recommendation_api.services.ocr import (
     LLMVisionOCRService,
     PdfConverterWithOCR,
 )
 from job_recommendation_api.services.ocr_client import OpenRouterVisionClient
+
+# Bumped when converter, OCR prompt, profile prompt, or profile schema
+# semantics change so cached extractions invalidate safely.
+EXTRACTION_VERSION = "2"
+
+_OCR_BUDGET_MARKER = "*[OCR skipped: page budget exceeded]*"
 
 _OCR_FAILURE_MARKERS = (
     "*[No text could be extracted from this page]*",
@@ -36,6 +44,17 @@ _OCR_FAILURE_MARKERS = (
 )
 
 _OCR_PRIORITY = -1.0  # higher priority than the built-in PdfConverter (0.0)
+
+
+def document_hash(document_bytes: bytes) -> str:
+    """SHA-256 hex digest of the ORIGINAL uploaded bytes (before any
+    image->PDF wrapping) so identical uploads always share a cache key."""
+    return hashlib.sha256(document_bytes).hexdigest()
+
+
+def cache_key(document_bytes: bytes) -> str:
+    """Versioned extraction-cache key for the uploaded document."""
+    return f"{document_hash(document_bytes)}:v{EXTRACTION_VERSION}"
 
 
 class DocumentConverter(Protocol):
@@ -82,9 +101,11 @@ class MarkItDownConverter:
         *,
         ocr_client: OpenRouterVisionClient | None = None,
         ocr_model: str | None = None,
+        max_ocr_pages: int | None = None,
     ) -> None:
         self._ocr_client = ocr_client
         self._ocr_model = ocr_model
+        self._max_ocr_pages = max_ocr_pages
 
     def convert(self, document_bytes: bytes, *, name: str) -> str:
         if not document_bytes:
@@ -95,7 +116,7 @@ class MarkItDownConverter:
         if kind == "image":
             document_bytes = _wrap_image_as_pdf(document_bytes)
 
-        converter = self._build_markitdown()
+        converter, ocr_converter = self._build_markitdown()
         try:
             stream = io.BytesIO(document_bytes)
             result = converter.convert_stream(
@@ -112,6 +133,13 @@ class MarkItDownConverter:
             raise DocumentConversionError("The document could not be converted to text.") from exc
 
         markdown = result.markdown or ""
+        if ocr_converter is not None and ocr_converter.budget_exceeded:
+            # Fail-loud past the page budget: the generic AppError handler
+            # maps this to 422 ocr_budget_exceeded. Never raised inline in
+            # the markitdown plugin (markitdown swallows converter errors).
+            raise OcrBudgetExceededError(
+                "The document requires more OCR pages than the configured budget allows."
+            )
         if not markdown.strip():
             raise DocumentConversionError(
                 "The document contains no extractable text. If it is a photo or "
@@ -123,17 +151,22 @@ class MarkItDownConverter:
             raise DocumentConversionError("OCR could not extract text from the document.")
         return markdown.strip()
 
-    def _build_markitdown(self) -> MarkItDown:
-        """Build a MarkItDown instance, optionally with the vendored OCR converter."""
+    def _build_markitdown(self) -> tuple[MarkItDown, PdfConverterWithOCR | None]:
+        """Build a MarkItDown instance, optionally with the vendored OCR converter.
+
+        Returns the instance and the registered OCR converter (or None) so
+        ``convert`` can read the per-document budget flag after conversion.
+        """
         if self._ocr_client is None:
-            return MarkItDown()
+            return MarkItDown(), None
         ocr_service = LLMVisionOCRService(client=self._ocr_client, model=self._ocr_model or "")
         converter = MarkItDown(
             llm_client=self._ocr_client,
             llm_model=self._ocr_model,
         )
-        converter.register_converter(
-            PdfConverterWithOCR(ocr_service=ocr_service),
-            priority=_OCR_PRIORITY,
+        ocr_converter = PdfConverterWithOCR(
+            ocr_service=ocr_service,
+            max_ocr_pages=self._max_ocr_pages,
         )
-        return converter
+        converter.register_converter(ocr_converter, priority=_OCR_PRIORITY)
+        return converter, ocr_converter

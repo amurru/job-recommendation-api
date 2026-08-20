@@ -25,6 +25,7 @@ from PIL import Image
 from job_recommendation_api.services.ocr.service import LLMVisionOCRService
 
 _NO_TEXT_MARKER = "*[No text could be extracted from this page]*"
+_BUDGET_MARKER = "*[OCR skipped: page budget exceeded]*"
 
 
 def _render_png(page: Any, resolution: int) -> BinaryIO:
@@ -93,11 +94,47 @@ def _extract_page_images(page: Any) -> list[dict[str, Any]]:
 
 
 class PdfConverterWithOCR(DocumentConverter):
-    """PDF converter that OCRs images and scanned pages via LLM vision."""
+    """PDF converter that OCRs images and scanned pages via LLM vision.
 
-    def __init__(self, ocr_service: LLMVisionOCRService | None = None) -> None:
+    A fresh instance is constructed per conversion, so the vision-call
+    counter and ``budget_exceeded`` flag are per-document. The budget is
+    never enforced by raising inline: markitdown catches converter
+    exceptions and silently falls through to the next converter, so the
+    flag is read by the orchestration converter after ``convert`` returns.
+    """
+
+    def __init__(
+        self,
+        ocr_service: LLMVisionOCRService | None = None,
+        max_ocr_pages: int | None = None,
+    ) -> None:
         super().__init__()
         self.ocr_service = ocr_service
+        self.max_ocr_pages = max_ocr_pages
+        self.vision_calls = 0
+        self.budget_exceeded = False
+
+    def _budget_available(self) -> bool:
+        """True if one more vision call fits the per-document budget."""
+        if self.max_ocr_pages is None:
+            return True
+        if self.vision_calls >= self.max_ocr_pages:
+            self.budget_exceeded = True
+            return False
+        return True
+
+    def _ocr_with_budget(
+        self,
+        ocr_service: LLMVisionOCRService,
+        stream: BinaryIO,
+        stream_info: Any = None,
+    ) -> str:
+        """Run one vision call if the budget allows, else return the marker."""
+        if not self._budget_available():
+            return _BUDGET_MARKER
+        self.vision_calls += 1
+        result = ocr_service.extract_text(stream, stream_info=stream_info)
+        return result.text
 
     def accepts(
         self,
@@ -151,11 +188,12 @@ class PdfConverterWithOCR(DocumentConverter):
             assert ocr_service is not None
             content_items = self._page_text_lines(page)
             for info in images_on_page:
-                result = ocr_service.extract_text(info["stream"])
-                if result.text.strip():
-                    content_items.append(
-                        {"y_pos": info["y_pos"], "type": "image", "text": result.text}
-                    )
+                text = self._ocr_with_budget(ocr_service, info["stream"])
+                if text == _BUDGET_MARKER:
+                    parts.append(_BUDGET_MARKER)
+                    continue
+                if text.strip():
+                    content_items.append({"y_pos": info["y_pos"], "type": "image", "text": text})
             content_items.sort(key=lambda item: item["y_pos"])
             for item in content_items:
                 if item["type"] == "text":
@@ -208,12 +246,17 @@ class PdfConverterWithOCR(DocumentConverter):
             return ""
 
     def _ocr_full_pages(self, pdf_bytes: io.BytesIO, ocr_service: LLMVisionOCRService) -> str:
-        """Render every page and OCR it in full (scanned-PDF fallback)."""
+        """Render and OCR pages in full (scanned-PDF fallback), bounded by
+        the per-document page budget; pages past the budget emit a marker."""
         parts: list[str] = []
         try:
             with pdfplumber.open(pdf_bytes) as pdf:
                 for page in pdf.pages:
                     parts.append(f"\n## Page {page.page_number}\n")
+                    if not self._budget_available():
+                        parts.append(_BUDGET_MARKER)
+                        continue
+                    self.vision_calls += 1
                     try:
                         result = ocr_service.extract_text(
                             _render_png(page, 300),

@@ -41,12 +41,12 @@ def minimal_pdf_bytes() -> bytes:
 
 @pytest.fixture
 def test_settings() -> Settings:
-    return Settings(openrouter_api_key=SecretStr("sk-test-key"), log_level="ERROR")
+    return make_settings(openrouter_api_key=SecretStr("sk-test-key"), log_level="ERROR")
 
 
 @pytest.fixture
 def no_key_settings() -> Settings:
-    return Settings(log_level="ERROR")
+    return make_settings(log_level="ERROR")
 
 
 class FakeLLMClient:
@@ -113,9 +113,70 @@ def fake_converter() -> FakeConverter:
     return FakeConverter()
 
 
+def default_profile() -> dict[str, Any]:
+    return {
+        "summary": "Backend engineer with Python experience.",
+        "skills": ["Python"],
+        "target_roles": [],
+        "education": [],
+        "languages": [],
+        "certifications": [],
+    }
+
+
+class FakeProfiler:
+    """Duck-typed ProfileExtractor fake."""
+
+    def __init__(self, profile: dict[str, Any] | None = None) -> None:
+        self.profile = profile if profile is not None else default_profile()
+        self.calls: list[str] = []
+        self.last_dropped_facts: list[str] = []
+
+    async def extract(self, markdown: str) -> dict[str, Any]:
+        self.calls.append(markdown)
+        return self.profile
+
+
+@pytest.fixture
+def fake_profiler() -> FakeProfiler:
+    return FakeProfiler()
+
+
+def make_settings(**kwargs: Any) -> Settings:
+    """Isolated Settings factory: never reads a local ``.env`` (FP-009)."""
+    return Settings(_env_file=None, **kwargs)  # type: ignore[call-arg]
+
+
+# markitdown calls ``load_dotenv()`` at import time, which copies ``.env``
+# values into ``os.environ`` process-wide. Strip the setting variables in
+# every test so a developer's local ``.env`` cannot leak into
+# defaults-dependent assertions (FP-009 test isolation).
+_SETTING_ENV_VARS = (
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_MODEL",
+    "OCR_MODEL",
+    "LLM_TIMEOUT_SECONDS",
+    "LLM_MAX_TOKENS",
+    "MAX_UPLOAD_BYTES",
+    "LOG_LEVEL",
+    "PROFILE_MODEL",
+    "OCR_TEMPERATURE",
+    "LLM_TEMPERATURE",
+    "PROFILE_FIDELITY",
+    "MAX_OCR_PAGES",
+    "EXTRACTION_CACHE_MAX_ENTRIES",
+    "EXTRACTION_CACHE_TTL_SECONDS",
+)
+
+
+@pytest.fixture(autouse=True)
+def _isolate_settings_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in _SETTING_ENV_VARS:
+        monkeypatch.delenv(name, raising=False)
+
+
 def make_app(**overrides: Any) -> Any:
     """Build a configured FastAPI app for integration tests."""
-    from job_recommendation_api.config import Settings
     from job_recommendation_api.main import create_app
 
     base: dict[str, Any] = {
@@ -123,4 +184,4 @@ def make_app(**overrides: Any) -> Any:
         "log_level": "ERROR",
     }
     base.update(overrides)
-    return create_app(Settings(**base))
+    return create_app(make_settings(**base))

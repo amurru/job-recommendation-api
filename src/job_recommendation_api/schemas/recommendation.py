@@ -64,12 +64,20 @@ class ResumeAnalysis(BaseModel):
 
 
 class ResponseMeta(BaseModel):
-    """Runtime-only metadata attached server-side (not part of the LLM schema)."""
+    """Runtime-only metadata attached server-side (not part of the LLM schema).
+
+    All fields beyond ``model`` are additive with safe defaults so existing
+    responses remain valid.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     model: str
     markdown_length: int | None = None
+    cache: Literal["hit", "miss"] | None = None
+    markdown_truncated: bool = False
+    dropped_facts: list[str] = Field(default_factory=list)
+    injection_lines_removed: int = 0
 
 
 class RecommendationResponse(BaseModel):

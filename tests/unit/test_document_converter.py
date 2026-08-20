@@ -149,3 +149,38 @@ def test_convert_real_pdf_with_ocr_enabled(
     converter = MarkItDownConverter(ocr_client=ocr_client, ocr_model="vision/model")
     markdown = converter.convert(minimal_pdf_bytes, name="resume.pdf")
     assert "Python" in markdown
+
+
+def test_budget_exceeded_flag_raises_ocr_budget_error(
+    minimal_pdf_bytes: bytes, ocr_client: OpenRouterVisionClient
+) -> None:
+    """FP-008: a budget-exceeded flag on the OCR converter surfaces as
+    OcrBudgetExceededError - never re-wrapped as conversion_failed."""
+    from job_recommendation_api.errors import OcrBudgetExceededError
+
+    converter = MarkItDownConverter(
+        ocr_client=ocr_client, ocr_model="vision/model", max_ocr_pages=2
+    )
+    with mock.patch("job_recommendation_api.services.document_converter.MarkItDown") as mock_md:
+        fake_result = mock.Mock()
+        fake_result.markdown = "text"
+        mock_md.return_value.convert_stream.return_value = fake_result
+
+        # Reach into the registered converter via the build path and flip the
+        # flag right before convert_stream runs.
+        registered: list[object] = []
+
+        def fake_register(converter_obj: object, *, priority: float) -> None:
+            registered.append(converter_obj)
+
+        mock_md.return_value.register_converter.side_effect = fake_register
+
+        def convert_stream_then_flag(*args: object, **kwargs: object) -> object:
+            assert isinstance(registered[0], PdfConverterWithOCR)
+            registered[0].budget_exceeded = True
+            return fake_result
+
+        mock_md.return_value.convert_stream.side_effect = convert_stream_then_flag
+
+        with pytest.raises(OcrBudgetExceededError):
+            converter.convert(minimal_pdf_bytes, name="resume.pdf")

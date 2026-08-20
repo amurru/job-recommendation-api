@@ -9,6 +9,7 @@ from unittest import mock
 import httpx
 import pytest
 from pydantic import SecretStr
+from tests.conftest import make_settings
 
 from job_recommendation_api.config import Settings
 from job_recommendation_api.errors import ConfigurationError
@@ -23,7 +24,7 @@ def _settings(**overrides: Any) -> Settings:
         "log_level": "ERROR",
     }
     defaults.update(overrides)
-    return Settings(**defaults)
+    return make_settings(**defaults)
 
 
 def _client_with_handler(handler: Any, settings: Settings) -> OpenRouterVisionClient:
@@ -73,10 +74,35 @@ def test_chat_completions_payload_and_response() -> None:
     body = captured["body"]
     assert isinstance(body, dict)
     assert body["model"] == "vision/model"
+    assert body["temperature"] == 0.0  # FP-001: deterministic OCR default
     content = body["messages"][0]["content"]
     assert isinstance(content, list)
     assert content[1]["image_url"]["url"].startswith("data:image/png;base64,")
     assert response.choices[0].message.content == "extracted text"
+
+
+def test_nonzero_ocr_temperature_override_honored() -> None:
+    """FP-001: a configured non-zero ocr_temperature is forwarded."""
+    captured: dict[str, object] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(
+            200,
+            json={"choices": [{"message": {"role": "assistant", "content": "text"}}]},
+        )
+
+    client = _client_with_handler(handler, _settings(ocr_model="vision/model", ocr_temperature=0.4))
+    try:
+        client.chat.completions.create(
+            model="vision/model",
+            messages=[{"role": "user", "content": "describe"}],
+        )
+    finally:
+        client.close()
+    body = captured["body"]
+    assert isinstance(body, dict)
+    assert body["temperature"] == 0.4
 
 
 def test_http_error_propagates() -> None:

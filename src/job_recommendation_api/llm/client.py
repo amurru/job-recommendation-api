@@ -170,6 +170,7 @@ class OpenRouterLLMClient:
                 messages=messages,  # type: ignore[arg-type]
                 response_format=response_format,
                 stream=False,
+                temperature=self._settings.llm_temperature,
                 max_tokens=self._settings.llm_max_tokens,
                 timeout_ms=int(self._settings.llm_timeout_seconds * 1000),
             )

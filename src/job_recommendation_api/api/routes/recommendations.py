@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 
 from fastapi import APIRouter, File, UploadFile
+from fastapi.responses import JSONResponse
 
 from job_recommendation_api.api.deps import RecommendationServiceDep, SettingsDep
 from job_recommendation_api.errors import (
@@ -33,7 +34,7 @@ async def create_recommendation(
     settings: SettingsDep,
     service: RecommendationServiceDep,
     file: UploadFile = File(...),
-) -> RecommendationResponse:
+) -> JSONResponse:
     """Analyze an uploaded resume PDF or photo and return career recommendations."""
     if file.content_type not in _SUPPORTED_CONTENT_TYPES:
         raise UnsupportedMediaTypeError(
@@ -51,4 +52,7 @@ async def create_recommendation(
 
     name = file.filename or "resume.pdf"
     result = await service.recommend(content, name=name)
-    return result
+    response = JSONResponse(content=result.model_dump(mode="json"))
+    if result.meta.cache is not None:
+        response.headers["X-Cache"] = result.meta.cache.upper()
+    return response

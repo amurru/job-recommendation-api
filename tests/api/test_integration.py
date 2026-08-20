@@ -8,11 +8,12 @@ from typing import Any
 from fastapi.testclient import TestClient
 from PIL import Image
 from pydantic import SecretStr
+from tests.conftest import make_settings
 
 from job_recommendation_api.api.deps import get_recommendation_service
-from job_recommendation_api.config import Settings
 from job_recommendation_api.errors import LLMInvalidOutputError
 from job_recommendation_api.main import create_app
+from job_recommendation_api.services.extraction_cache import InMemoryExtractionCache
 from job_recommendation_api.services.recommendation import RecommendationService
 
 MINIMAL_PDF = (
@@ -94,17 +95,35 @@ class _FakeLLM:
         pass
 
 
+class _FakeProfiler:
+    def __init__(self) -> None:
+        self.calls: list[str] = []
+        self.last_dropped_facts: list[str] = []
+
+    async def extract(self, markdown: str) -> dict[str, Any]:
+        self.calls.append(markdown)
+        return {"summary": "Python developer.", "skills": ["Python"]}
+
+
 def _build_app(
-    fake: _FakeLLM, converter: _FakeConverter | None = None, **settings_overrides: object
+    fake: _FakeLLM,
+    converter: Any = None,
+    **settings_overrides: object,
 ) -> TestClient:
     base: dict[str, object] = {
         "openrouter_api_key": SecretStr("sk-test-key"),
         "log_level": "ERROR",
     }
     base.update(settings_overrides)
-    app = create_app(Settings(**base))  # type: ignore[arg-type]
+    app = create_app(make_settings(**base))
+    profiler = _FakeProfiler()
+    extraction_cache = InMemoryExtractionCache(max_entries=16, ttl_seconds=60)
     app.dependency_overrides[get_recommendation_service] = lambda: RecommendationService(
-        converter or _FakeConverter(), fake, model="test/model"
+        converter or _FakeConverter(),
+        fake,
+        model="test/model",
+        profiler=profiler,
+        extraction_cache=extraction_cache,
     )
     return TestClient(app)
 
@@ -125,7 +144,7 @@ class TestHealth:
         assert body["model"] == "openai/gpt-4o-mini"
 
     def test_readyz_unready_without_key(self) -> None:
-        app = create_app(Settings(log_level="ERROR"))
+        app = create_app(make_settings(log_level="ERROR"))
         client = TestClient(app)
         resp = client.get("/readyz")
         assert resp.status_code == 503
@@ -221,3 +240,41 @@ class TestRecommendations:
         client = _build_app(_FakeLLM())
         resp = client.get("/healthz", headers={"X-Request-ID": "abc123"})
         assert resp.headers.get("X-Request-ID") == "abc123"
+
+    def test_x_cache_header_miss_then_hit(self) -> None:
+        """FP-006: X-Cache header present on 200; second identical upload
+        hits the cache and returns identical analysis + meta."""
+        client = _build_app(_FakeLLM())
+        files = {"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")}
+        first = client.post("/api/v1/recommendations", files=files)
+        assert first.status_code == 200, first.text
+        assert first.headers["X-Cache"] == "MISS"
+        assert first.json()["meta"]["cache"] == "miss"
+
+        second = client.post("/api/v1/recommendations", files=files)
+        assert second.status_code == 200
+        assert second.headers["X-Cache"] == "HIT"
+        assert second.json()["meta"]["cache"] == "hit"
+        # Identical analysis; meta identical except the cache marker.
+        assert second.json()["analysis"] == first.json()["analysis"]
+        first_meta = {**first.json()["meta"], "cache": "hit"}
+        assert second.json()["meta"] == first_meta
+
+    def test_ocr_budget_exceeded_maps_to_422(self) -> None:
+        """FP-008: the budget error surfaces as 422 ocr_budget_exceeded -
+        never re-wrapped as conversion_failed."""
+        from job_recommendation_api.errors import OcrBudgetExceededError
+
+        class _BudgetConverter:
+            def convert(self, document_bytes: bytes, *, name: str) -> str:
+                raise OcrBudgetExceededError("too many pages")
+
+        fake = _FakeLLM()
+        client = _build_app(fake, converter=_BudgetConverter())
+        resp = client.post(
+            "/api/v1/recommendations",
+            files={"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "ocr_budget_exceeded"
+        assert fake.calls == 0

@@ -17,8 +17,10 @@ from job_recommendation_api.api.router import api_router
 from job_recommendation_api.config import Settings, load_settings
 from job_recommendation_api.llm.client import OpenRouterLLMClient
 from job_recommendation_api.services.document_converter import MarkItDownConverter
+from job_recommendation_api.services.extraction_cache import InMemoryExtractionCache
 from job_recommendation_api.services.ocr_client import OpenRouterVisionClient
 from job_recommendation_api.services.recommendation import RecommendationService
+from job_recommendation_api.services.resume_profiler import LLMProfileExtractor
 
 logger = logging.getLogger(__name__)
 
@@ -77,13 +79,27 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         converter = MarkItDownConverter(
             ocr_client=ocr_client,
             ocr_model=resolved.ocr_model,
+            max_ocr_pages=resolved.max_ocr_pages,
         )
         llm_client = OpenRouterLLMClient(resolved)
         await llm_client.start()
-        service = RecommendationService(converter, llm_client, model=resolved.openrouter_model)
+        profiler = LLMProfileExtractor(llm_client, resolved)
+        extraction_cache = InMemoryExtractionCache(
+            max_entries=resolved.extraction_cache_max_entries,
+            ttl_seconds=resolved.extraction_cache_ttl_seconds,
+        )
+        service = RecommendationService(
+            converter,
+            llm_client,
+            model=resolved.openrouter_model,
+            profiler=profiler,
+            extraction_cache=extraction_cache,
+        )
         app.state.settings = resolved
         app.state.converter = converter
         app.state.llm_client = llm_client
+        app.state.profiler = profiler
+        app.state.extraction_cache = extraction_cache
         app.state.recommendation_service = service
         try:
             yield

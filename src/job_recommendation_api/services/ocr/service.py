@@ -22,7 +22,9 @@ from markitdown import StreamInfo
 _DEFAULT_PROMPT = (
     "Extract all text from this image. "
     "Return ONLY the extracted text, maintaining the original layout and "
-    "order. Do not add any commentary or description."
+    "order. Do not add, fix, infer, complete, or summarize anything. If text "
+    "is garbled or unreadable, output it exactly as it appears. Do not add "
+    "any commentary or description."
 )
 
 

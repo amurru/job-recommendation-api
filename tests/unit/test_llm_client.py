@@ -5,6 +5,7 @@ from __future__ import annotations
 import httpx
 import pytest
 from pydantic import SecretStr
+from tests.conftest import make_settings
 
 from job_recommendation_api.config import Settings
 from job_recommendation_api.errors import (
@@ -24,7 +25,7 @@ def _settings(**overrides: object) -> Settings:
         "log_level": "ERROR",
     }
     base.update(overrides)
-    return Settings(**base)  # type: ignore[arg-type]
+    return make_settings(**base)
 
 
 @pytest.mark.asyncio
@@ -116,6 +117,34 @@ async def test_complete_happy_path() -> None:
 
     out = await client.complete([{"role": "user", "content": "hi"}], schema={})
     assert out == {"summary": "ok"}
+
+
+@pytest.mark.asyncio
+async def test_complete_forwards_configured_temperature() -> None:
+    """FP-001: send_async receives the configured llm_temperature; a
+    non-zero override is honored."""
+    from unittest import mock
+
+    class _Message:
+        content = '{"summary": "ok"}'
+
+    class _Choice:
+        def __init__(self) -> None:
+            self.message = _Message()
+
+    class _Result:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+
+    for temperature in (0.0, 0.7):
+        result = _Result()
+        client = OpenRouterLLMClient(_settings(llm_temperature=temperature))
+        client._client = mock.AsyncMock()
+        client._client.chat.send_async = mock.AsyncMock(return_value=result)
+
+        await client.complete([{"role": "user", "content": "hi"}], schema={})
+        kwargs = client._client.chat.send_async.call_args.kwargs
+        assert kwargs["temperature"] == temperature
 
 
 @pytest.mark.asyncio

@@ -94,10 +94,25 @@ Example response:
   },
   "meta": {
     "model": "openai/gpt-4o-mini",
-    "markdown_length": 4321
+    "markdown_length": 4321,
+    "cache": "miss",
+    "markdown_truncated": false,
+    "dropped_facts": [],
+    "injection_lines_removed": 0
   }
 }
 ```
+
+## Extraction cache
+
+Successful extractions (markdown + structured profile) are cached in-process,
+keyed by the SHA-256 of the uploaded bytes and the extraction pipeline
+version, with a TTL (`EXTRACTION_CACHE_TTL_SECONDS`) and an LRU cap
+(`EXTRACTION_CACHE_MAX_ENTRIES`). Re-uploading the same document skips
+conversion, OCR, and profile extraction entirely - only the recommendation
+call runs (it is never cached). Responses carry `meta.cache` and an
+`X-Cache: HIT|MISS` header. The cache is per-worker; multi-worker deployments
+degrade to per-worker hit rates.
 
 ## Errors
 
@@ -114,6 +129,7 @@ Non-2xx responses use a uniform envelope:
 | 415 | `unsupported_media_type` | Unsupported content type |
 | 422 | `conversion_failed` | Document (or OCR) produced no usable text |
 | 422 | `not_a_resume` | Document converted, but does not look like a resume |
+| 422 | `ocr_budget_exceeded` | Document requires more OCR pages than `MAX_OCR_PAGES` allows |
 | 422 | `llm_invalid_output` | Model returned malformed/non-schema JSON |
 | 502 | `llm_error` | Upstream OpenRouter/model failure |
 | 504 | `llm_timeout` | LLM call exceeded timeout |
@@ -132,6 +148,13 @@ All settings are environment-driven (`pydantic-settings`, read from `.env`):
 | `LLM_MAX_TOKENS` | `4096` | Max tokens for the LLM response. |
 | `MAX_UPLOAD_BYTES` | `10485760` | Max accepted document size (10 MiB). |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
+| `PROFILE_MODEL` | `openai/gpt-4o-mini` | Model for the profile extraction stage. |
+| `OCR_TEMPERATURE` | `0.0` | Temperature for OCR vision calls (0 = deterministic). |
+| `LLM_TEMPERATURE` | `0.0` | Temperature for profile and recommendation calls. |
+| `PROFILE_FIDELITY` | `lenient` | `lenient` (drop + log) or `strict` (fail) on unsupported facts. |
+| `MAX_OCR_PAGES` | `10` | Per-document OCR page/call budget. |
+| `EXTRACTION_CACHE_MAX_ENTRIES` | `256` | LRU cap for the in-process extraction cache. |
+| `EXTRACTION_CACHE_TTL_SECONDS` | `3600` | Entry TTL for the extraction cache. |
 
 ## Development
 
@@ -149,7 +172,7 @@ Or run the underlying tools directly:
 uv run ruff check .          # lint
 uv run ruff format .         # format
 uv run mypy src tests        # typecheck
-uv run pytest                # test (84 tests)
+uv run pytest                # test (140 tests)
 ```
 
 Pre-commit hooks (ruff lint, ruff format, mypy) are configured in

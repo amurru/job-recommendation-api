@@ -69,6 +69,7 @@ class OpenRouterVisionClient:
         self._model = settings.ocr_model
         if not self._model:
             raise ConfigurationError("OCR_MODEL is not set; OCR is unavailable.")
+        self._temperature = settings.ocr_temperature
         self._http = httpx.Client(
             base_url=_BASE_URL,
             timeout=httpx.Timeout(settings.llm_timeout_seconds),
@@ -84,6 +85,7 @@ class OpenRouterVisionClient:
         payload: dict[str, Any] = {
             "model": kwargs.get("model") or self._model,
             "messages": kwargs.get("messages", []),
+            "temperature": self._temperature,
         }
         response = self._http.post(
             "/chat/completions",

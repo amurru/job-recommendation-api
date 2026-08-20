@@ -9,6 +9,7 @@ across the test session.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 from pydantic import SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -42,6 +43,14 @@ class Settings(BaseSettings):
     llm_max_tokens: int = 4096
     max_upload_bytes: int = 10 * 1024 * 1024
     log_level: str = "INFO"
+
+    profile_model: str = "openai/gpt-4o-mini"
+    ocr_temperature: float = 0.0
+    llm_temperature: float = 0.0
+    profile_fidelity: Literal["lenient", "strict"] = "lenient"
+    max_ocr_pages: int = 10
+    extraction_cache_max_entries: int = 256
+    extraction_cache_ttl_seconds: int = 3600
 
     def has_api_key(self) -> bool:
         return bool(self.openrouter_api_key.get_secret_value().strip())

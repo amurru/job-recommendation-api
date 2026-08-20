@@ -44,6 +44,14 @@ class NotAResumeError(AppError):
     status_code = 422
 
 
+class OcrBudgetExceededError(AppError):
+    """The document needs more OCR pages/calls than the budget allows."""
+
+    code = "ocr_budget_exceeded"
+    default_message = "The document exceeds the OCR page budget."
+    status_code = 422
+
+
 class DocumentTooLargeError(AppError):
     """The upload exceeds the configured size cap."""
 

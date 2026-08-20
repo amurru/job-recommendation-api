@@ -14,7 +14,7 @@ from job_recommendation_api.services.prompts import (
 
 
 def test_build_user_prompt_embeds_resume() -> None:
-    prompt = build_user_prompt("# Jane Doe\nPython developer")
+    prompt = build_user_prompt("# Jane Doe\nPython developer", {"skills": ["Python"]})
     assert "<resume>" in prompt
     assert "</resume>" in prompt
     assert "# Jane Doe\nPython developer" in prompt
@@ -22,7 +22,7 @@ def test_build_user_prompt_embeds_resume() -> None:
 
 def test_build_user_prompt_truncates_long_resume() -> None:
     long_resume = "x" * (MAX_RESUME_CHARS + 100)
-    prompt = build_user_prompt(long_resume)
+    prompt = build_user_prompt(long_resume, {"skills": []})
     assert "...[resume truncated]..." in prompt
 
 
@@ -39,7 +39,7 @@ def test_recommendation_schema_has_expected_required_keys() -> None:
 def test_user_prompt_embeds_schema_example() -> None:
     """The expected-output example must be embedded in the user prompt so
     json_object fallback mode communicates the exact keys to the model."""
-    prompt = build_user_prompt("# Jane Doe\nPython developer")
+    prompt = build_user_prompt("# Jane Doe\nPython developer", {"skills": ["Python"]})
     assert SCHEMA_EXAMPLE in prompt
     example = json.loads(SCHEMA_EXAMPLE)
     assert set(example) == {"summary", "top_skills", "jobs", "education_materials"}
