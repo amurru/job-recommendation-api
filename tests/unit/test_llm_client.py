@@ -119,6 +119,34 @@ async def test_complete_happy_path() -> None:
 
 
 @pytest.mark.asyncio
+async def test_complete_empty_content_surfaces_as_invalid_output() -> None:
+    """Empty model content (e.g. finish_reason=length on a reasoning model)
+    must surface as LLMInvalidOutputError, not be swallowed into a generic
+    LLMError."""
+    from unittest import mock
+
+    class _Message:
+        content = None
+
+    class _Choice:
+        finish_reason = "length"
+
+        def __init__(self) -> None:
+            self.message = _Message()
+
+    class _Result:
+        def __init__(self) -> None:
+            self.choices = [_Choice()]
+
+    client = OpenRouterLLMClient(_settings())
+    client._client = mock.AsyncMock()
+    client._client.chat.send_async = mock.AsyncMock(return_value=_Result())
+
+    with pytest.raises(LLMInvalidOutputError):
+        await client.complete([{"role": "user", "content": "hi"}], schema={})
+
+
+@pytest.mark.asyncio
 async def test_close_idempotent() -> None:
     client = OpenRouterLLMClient(_settings())
     await client.close()  # should not raise when never started

@@ -36,6 +36,14 @@ class DocumentConversionError(AppError):
     status_code = 422
 
 
+class NotAResumeError(AppError):
+    """The document converted, but does not look like a resume."""
+
+    code = "not_a_resume"
+    default_message = "The uploaded document does not appear to be a resume."
+    status_code = 422
+
+
 class DocumentTooLargeError(AppError):
     """The upload exceeds the configured size cap."""
 
@@ -60,7 +68,7 @@ class LLMError(AppError):
     status_code = 502
 
 
-class LLMTimeoutError(AppError):
+class LLMTimeoutError(LLMError):
     """The LLM call exceeded the configured timeout."""
 
     code = "llm_timeout"
@@ -68,7 +76,7 @@ class LLMTimeoutError(AppError):
     status_code = 504
 
 
-class LLMInvalidOutputError(AppError):
+class LLMInvalidOutputError(LLMError):
     """The model returned malformed or non-schema JSON."""
 
     code = "llm_invalid_output"

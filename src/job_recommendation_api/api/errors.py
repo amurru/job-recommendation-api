@@ -28,6 +28,7 @@ def register_exception_handlers(app: FastAPI) -> None:
             exc.code,
             exc.detail,
             request.url.path,
+            exc_info=True,
         )
         return JSONResponse(
             status_code=exc.status_code,

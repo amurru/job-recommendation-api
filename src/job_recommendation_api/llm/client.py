@@ -183,7 +183,14 @@ class OpenRouterLLMClient:
         except (IndexError, AttributeError) as exc:
             raise LLMInvalidOutputError("The model returned an empty response.") from exc
 
-        return self._extract_text(message.content)
+        text = self._extract_text(message.content)
+        if not text:
+            finish_reason = getattr(result.choices[0], "finish_reason", None)
+            raise LLMInvalidOutputError(
+                "The model returned an empty response "
+                f"(finish_reason={finish_reason!r}); it may have exhausted its token budget."
+            )
+        return text
 
     def _extract_text(self, content: object) -> str:
         if isinstance(content, str):

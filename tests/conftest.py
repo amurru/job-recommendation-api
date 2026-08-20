@@ -99,7 +99,7 @@ def fake_llm() -> FakeLLMClient:
 class FakeConverter:
     """Duck-typed DocumentConverter fake."""
 
-    def __init__(self, markdown: str = "# Python Engineer\nExperienced.") -> None:
+    def __init__(self, markdown: str = "# Python Engineer\nExperienced.\njane@example.com") -> None:
         self.markdown = markdown
         self.calls: list[tuple[bytes, str]] = []
 

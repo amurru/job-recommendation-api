@@ -6,7 +6,7 @@ from typing import Any
 
 from anyio.to_thread import run_sync
 
-from job_recommendation_api.errors import LLMInvalidOutputError
+from job_recommendation_api.errors import LLMInvalidOutputError, NotAResumeError
 from job_recommendation_api.llm.client import LLMClient
 from job_recommendation_api.schemas.recommendation import (
     RecommendationResponse,
@@ -18,13 +18,15 @@ from job_recommendation_api.services.prompts import (
     SYSTEM_PROMPT,
     build_user_prompt,
 )
+from job_recommendation_api.services.resume_detector import looks_like_resume
 
 Message = dict[str, str]
 
 _CORRECTIVE_PROMPT = (
     "Your previous response was invalid. Return ONLY a single JSON object that "
-    "strictly conforms to the supplied schema: no markdown fences, no "
-    "commentary, no extra keys, no empty values where a string is required."
+    "matches the expected output shape shown in the resume message exactly: "
+    "no markdown fences, no commentary, no extra keys, no empty values where "
+    "a string is required."
 )
 
 
@@ -53,6 +55,11 @@ class RecommendationService:
 
     async def recommend(self, pdf_bytes: bytes, *, name: str) -> RecommendationResponse:
         markdown = await run_sync(_convert, self._converter, pdf_bytes, name)
+        if not looks_like_resume(markdown):
+            raise NotAResumeError(
+                "The uploaded document does not appear to be a resume. "
+                "Please upload a PDF resume."
+            )
         messages: list[Message] = [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": build_user_prompt(markdown)},

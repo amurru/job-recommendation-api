@@ -38,7 +38,7 @@ class Settings(BaseSettings):
     openrouter_api_key: SecretStr = SecretStr("")
     openrouter_model: str = "openai/gpt-4o-mini"
     llm_timeout_seconds: float = 60.0
-    llm_max_tokens: int = 2048
+    llm_max_tokens: int = 4096
     max_upload_bytes: int = 10 * 1024 * 1024
     log_level: str = "INFO"
 

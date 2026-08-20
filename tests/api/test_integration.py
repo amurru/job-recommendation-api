@@ -63,8 +63,11 @@ def _valid_payload() -> dict[str, Any]:
 
 
 class _FakeConverter:
+    def __init__(self, markdown: str = "# Jane\nPython developer\njane@example.com") -> None:
+        self._markdown = markdown
+
     def convert(self, pdf_bytes: bytes, *, name: str) -> str:
-        return "# Jane\nPython developer"
+        return self._markdown
 
 
 class _FakeLLM:
@@ -89,7 +92,9 @@ class _FakeLLM:
         pass
 
 
-def _build_app(fake: _FakeLLM, **settings_overrides: object) -> TestClient:
+def _build_app(
+    fake: _FakeLLM, converter: _FakeConverter | None = None, **settings_overrides: object
+) -> TestClient:
     base: dict[str, object] = {
         "openrouter_api_key": SecretStr("sk-test-key"),
         "log_level": "ERROR",
@@ -97,7 +102,7 @@ def _build_app(fake: _FakeLLM, **settings_overrides: object) -> TestClient:
     base.update(settings_overrides)
     app = create_app(Settings(**base))  # type: ignore[arg-type]
     app.dependency_overrides[get_recommendation_service] = lambda: RecommendationService(
-        _FakeConverter(), fake, model="test/model"
+        converter or _FakeConverter(), fake, model="test/model"
     )
     return TestClient(app)
 
@@ -170,6 +175,18 @@ class TestRecommendations:
         )
         assert resp.status_code == 422
         assert resp.json()["error"]["code"] == "llm_invalid_output"
+
+    def test_recommendation_422_not_a_resume(self) -> None:
+        fake = _FakeLLM()
+        converter = _FakeConverter(markdown="Student Information\nStudent USER ID: ammar_94038")
+        client = _build_app(fake, converter=converter)
+        resp = client.post(
+            "/api/v1/recommendations",
+            files={"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+        assert resp.status_code == 422
+        assert resp.json()["error"]["code"] == "not_a_resume"
+        assert fake.calls == 0  # LLM must never be called for a non-resume
 
     def test_recommendation_error_envelope_shape(self) -> None:
         fake = _FakeLLM(errors=[LLMInvalidOutputError("bad output")])

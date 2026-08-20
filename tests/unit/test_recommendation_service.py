@@ -6,7 +6,7 @@ from typing import Any
 
 import pytest
 
-from job_recommendation_api.errors import LLMInvalidOutputError
+from job_recommendation_api.errors import LLMInvalidOutputError, NotAResumeError
 from job_recommendation_api.services.recommendation import RecommendationService
 
 
@@ -29,7 +29,7 @@ class _FakeLLM:
 
 
 class _FakeConverter:
-    def __init__(self, markdown: str = "# Jane\nPython dev") -> None:
+    def __init__(self, markdown: str = "# Jane\nPython developer\njane@example.com") -> None:
         self.markdown = markdown
         self.called_with: bytes | None = None
 
@@ -120,3 +120,16 @@ async def test_recommend_raises_when_llm_keeps_failing(
     with pytest.raises(LLMInvalidOutputError):
         await service.recommend(b"%PDF-1.4", name="resume.pdf")
     assert len(llm.calls) == 2  # initial + corrective retry
+
+
+@pytest.mark.asyncio
+async def test_recommend_rejects_non_resume_document(
+    valid_payload: dict[str, Any],
+) -> None:
+    converter = _FakeConverter(markdown="Student Information\nStudent USER ID: ammar_94038")
+    llm = _FakeLLM(valid_payload)
+    service = RecommendationService(converter, llm, model="test/model")
+
+    with pytest.raises(NotAResumeError):
+        await service.recommend(b"%PDF-1.4", name="resume.pdf")
+    assert llm.calls == []  # LLM must never be called for a non-resume

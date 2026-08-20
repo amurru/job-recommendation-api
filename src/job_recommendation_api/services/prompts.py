@@ -7,6 +7,7 @@ against.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 from job_recommendation_api.schemas.recommendation import ResumeAnalysis
@@ -26,6 +27,37 @@ SYSTEM_PROMPT = (
     "- Keep values concise and professional."
 )
 
+# A concrete example of the expected output. Models follow examples far more
+# reliably than a raw JSON Schema, and this is the only schema the model sees
+# when the provider rejects ``json_schema`` output and the client falls back to
+# ``json_object`` mode. Keep this in sync with ``ResumeAnalysis``.
+SCHEMA_EXAMPLE: str = json.dumps(
+    {
+        "summary": "Two-sentence summary of the candidate.",
+        "top_skills": ["skill-1", "skill-2"],
+        "jobs": [
+            {
+                "title": "Recommended job title",
+                "fit_score": 0.9,
+                "seniority_level": "senior",
+                "rationale": "One-sentence rationale.",
+                "key_skills": ["skill-1", "skill-2"],
+            }
+        ],
+        "education_materials": [
+            {
+                "topic": "Learning topic",
+                "kind": "book",
+                "title": "Resource title",
+                "provider": "Provider",
+                "url": "https://example.com",
+                "rationale": "One-sentence rationale.",
+            }
+        ],
+    },
+    indent=2,
+)
+
 # Max resume characters embedded in the user prompt, to guard the token budget.
 MAX_RESUME_CHARS = 20_000
 
@@ -42,7 +74,11 @@ def build_user_prompt(resume_markdown: str) -> str:
         f"{snapshot}\n"
         "</resume>\n"
         "\n"
-        "Return your analysis as JSON conforming to the supplied schema."
+        "Return your analysis as JSON conforming to the supplied schema.\n"
+        "\n"
+        "Expected output shape (follow this exactly, but use real content from "
+        "the resume):\n"
+        f"{SCHEMA_EXAMPLE}"
     )
 
 

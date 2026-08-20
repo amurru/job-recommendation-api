@@ -15,6 +15,7 @@ JSONObject = dict[str, Any]
 
 SeniorityLevel = Literal[
     "intern",
+    "entry",
     "junior",
     "mid",
     "senior",

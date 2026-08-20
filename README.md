@@ -106,6 +106,7 @@ Non-2xx responses use a uniform envelope:
 | 413 | `document_too_large` | Exceeds upload size cap |
 | 415 | `unsupported_media_type` | Non-PDF content type |
 | 422 | `conversion_failed` | PDF converted to no usable text |
+| 422 | `not_a_resume` | Document converted, but does not look like a resume |
 | 422 | `llm_invalid_output` | Model returned malformed/non-schema JSON |
 | 502 | `llm_error` | Upstream OpenRouter/model failure |
 | 504 | `llm_timeout` | LLM call exceeded timeout |
@@ -120,7 +121,7 @@ All settings are environment-driven (`pydantic-settings`, read from `.env`):
 | `OPENROUTER_API_KEY` | *(required)* | OpenRouter API key. |
 | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` | Model used for analysis. |
 | `LLM_TIMEOUT_SECONDS` | `60` | LLM call timeout in seconds. |
-| `LLM_MAX_TOKENS` | `2048` | Max tokens for the LLM response. |
+| `LLM_MAX_TOKENS` | `4096` | Max tokens for the LLM response. |
 | `MAX_UPLOAD_BYTES` | `10485760` | Max accepted PDF size (10 MiB). |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 

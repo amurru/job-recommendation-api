@@ -2,9 +2,12 @@
 
 from __future__ import annotations
 
+import json
+
 from job_recommendation_api.services.prompts import (
     MAX_RESUME_CHARS,
     RECOMMENDATION_SCHEMA,
+    SCHEMA_EXAMPLE,
     SYSTEM_PROMPT,
     build_user_prompt,
 )
@@ -31,3 +34,27 @@ def test_system_prompt_mentions_json_rules() -> None:
 def test_recommendation_schema_has_expected_required_keys() -> None:
     required = set(RECOMMENDATION_SCHEMA["required"])
     assert required == {"summary", "top_skills", "jobs", "education_materials"}
+
+
+def test_user_prompt_embeds_schema_example() -> None:
+    """The expected-output example must be embedded in the user prompt so
+    json_object fallback mode communicates the exact keys to the model."""
+    prompt = build_user_prompt("# Jane Doe\nPython developer")
+    assert SCHEMA_EXAMPLE in prompt
+    example = json.loads(SCHEMA_EXAMPLE)
+    assert set(example) == {"summary", "top_skills", "jobs", "education_materials"}
+    assert set(example["jobs"][0]) == {
+        "title",
+        "fit_score",
+        "seniority_level",
+        "rationale",
+        "key_skills",
+    }
+    assert set(example["education_materials"][0]) == {
+        "topic",
+        "kind",
+        "title",
+        "provider",
+        "url",
+        "rationale",
+    }
