@@ -17,6 +17,7 @@ from job_recommendation_api.api.router import api_router
 from job_recommendation_api.config import Settings, load_settings
 from job_recommendation_api.llm.client import OpenRouterLLMClient
 from job_recommendation_api.services.document_converter import MarkItDownConverter
+from job_recommendation_api.services.ocr_client import OpenRouterVisionClient
 from job_recommendation_api.services.recommendation import RecommendationService
 
 logger = logging.getLogger(__name__)
@@ -72,7 +73,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
-        converter = MarkItDownConverter()
+        ocr_client = OpenRouterVisionClient(resolved) if resolved.has_api_key() else None
+        converter = MarkItDownConverter(
+            ocr_client=ocr_client,
+            ocr_model=resolved.ocr_model,
+        )
         llm_client = OpenRouterLLMClient(resolved)
         await llm_client.start()
         service = RecommendationService(converter, llm_client, model=resolved.openrouter_model)
@@ -84,6 +89,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             await llm_client.close()
+            if ocr_client is not None:
+                ocr_client.close()
 
     app = FastAPI(
         title="Job Recommendation API",

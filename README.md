@@ -1,11 +1,12 @@
 # Job Recommendation API
 
-A no-authentication FastAPI service that turns a resume PDF into actionable
-career guidance.
+A no-authentication FastAPI service that turns a resume PDF or photo into
+actionable career guidance.
 
 ```
-POST multipart PDF -> markitdown (PDF -> Markdown) -> OpenRouter LLM
-                   -> validate JSON -> RecommendationResponse
+POST multipart document -> markitdown (+ OCR for scanned/photo resumes)
+                        -> OpenRouter LLM
+                        -> validate JSON -> RecommendationResponse
 ```
 
 The response contains a resume summary, ranked job recommendations with fit
@@ -17,7 +18,7 @@ scores, and education materials to close skills gaps.
 |--------|------|-------------|
 | `GET` | `/healthz` | Liveness check. Always `200` when the process is up. |
 | `GET` | `/readyz` | Readiness check. `200` when the OpenRouter API key is set, else `503`. |
-| `POST` | `/api/v1/recommendations` | Accepts a PDF resume (`multipart/form-data`, field `file`) and returns validated recommendations. |
+| `POST` | `/api/v1/recommendations` | Accepts a resume as a PDF or photo (`multipart/form-data`, field `file`; `application/pdf`, `image/jpeg`, `image/png`, `image/webp`) and returns validated recommendations. |
 
 ## Quickstart
 
@@ -53,9 +54,15 @@ The API listens on `http://0.0.0.0:8000`. Interactive docs are at
 ### curl example
 
 ```bash
+# PDF resume
 curl -X POST http://localhost:8000/api/v1/recommendations \
   -H "Content-Type: multipart/form-data" \
   -F "file=@resume.pdf"
+
+# Photo resume (scanned / photo of a resume)
+curl -X POST http://localhost:8000/api/v1/recommendations \
+  -H "Content-Type: multipart/form-data" \
+  -F "file=@resume.jpg;type=image/jpeg"
 ```
 
 Example response:
@@ -97,15 +104,15 @@ Example response:
 Non-2xx responses use a uniform envelope:
 
 ```json
-{ "error": { "code": "invalid_document", "message": "The file is not a valid PDF." } }
+{ "error": { "code": "invalid_document", "message": "The file is not a valid PDF or image document." } }
 ```
 
 | HTTP | `error.code` | Meaning |
 |------|--------------|---------|
-| 400 | `invalid_document` | Not a PDF / unreadable document |
+| 400 | `invalid_document` | Not a PDF / image / unreadable document |
 | 413 | `document_too_large` | Exceeds upload size cap |
-| 415 | `unsupported_media_type` | Non-PDF content type |
-| 422 | `conversion_failed` | PDF converted to no usable text |
+| 415 | `unsupported_media_type` | Unsupported content type |
+| 422 | `conversion_failed` | Document (or OCR) produced no usable text |
 | 422 | `not_a_resume` | Document converted, but does not look like a resume |
 | 422 | `llm_invalid_output` | Model returned malformed/non-schema JSON |
 | 502 | `llm_error` | Upstream OpenRouter/model failure |
@@ -120,9 +127,10 @@ All settings are environment-driven (`pydantic-settings`, read from `.env`):
 |----------|---------|-------------|
 | `OPENROUTER_API_KEY` | *(required)* | OpenRouter API key. |
 | `OPENROUTER_MODEL` | `openai/gpt-4o-mini` | Model used for analysis. |
+| `OCR_MODEL` | `openai/gpt-4o-mini` | Vision model used for OCR of scanned/photo resumes. |
 | `LLM_TIMEOUT_SECONDS` | `60` | LLM call timeout in seconds. |
 | `LLM_MAX_TOKENS` | `4096` | Max tokens for the LLM response. |
-| `MAX_UPLOAD_BYTES` | `10485760` | Max accepted PDF size (10 MiB). |
+| `MAX_UPLOAD_BYTES` | `10485760` | Max accepted document size (10 MiB). |
 | `LOG_LEVEL` | `INFO` | Log level (`DEBUG`, `INFO`, `WARNING`, `ERROR`). |
 
 ## Development
@@ -141,7 +149,7 @@ Or run the underlying tools directly:
 uv run ruff check .          # lint
 uv run ruff format .         # format
 uv run mypy src tests        # typecheck
-uv run pytest                # test (58 tests)
+uv run pytest                # test (84 tests)
 ```
 
 Pre-commit hooks (ruff lint, ruff format, mypy) are configured in

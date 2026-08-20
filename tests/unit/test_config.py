@@ -10,6 +10,7 @@ from job_recommendation_api.config import Settings, load_settings
 def test_defaults() -> None:
     settings = Settings(openrouter_api_key=SecretStr("sk-test"), log_level="DEBUG")
     assert settings.openrouter_model == "openai/gpt-4o-mini"
+    assert settings.ocr_model == "openai/gpt-4o-mini"
     assert settings.llm_timeout_seconds == 60.0
     assert settings.llm_max_tokens == 4096
     assert settings.max_upload_bytes == 10 * 1024 * 1024

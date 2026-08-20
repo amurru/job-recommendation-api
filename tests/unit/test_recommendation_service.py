@@ -33,8 +33,8 @@ class _FakeConverter:
         self.markdown = markdown
         self.called_with: bytes | None = None
 
-    def convert(self, pdf_bytes: bytes, *, name: str) -> str:
-        self.called_with = pdf_bytes
+    def convert(self, document_bytes: bytes, *, name: str) -> str:
+        self.called_with = document_bytes
         return self.markdown
 
 

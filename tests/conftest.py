@@ -103,8 +103,8 @@ class FakeConverter:
         self.markdown = markdown
         self.calls: list[tuple[bytes, str]] = []
 
-    def convert(self, pdf_bytes: bytes, *, name: str) -> str:
-        self.calls.append((pdf_bytes, name))
+    def convert(self, document_bytes: bytes, *, name: str) -> str:
+        self.calls.append((document_bytes, name))
         return self.markdown
 
 

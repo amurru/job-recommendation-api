@@ -21,10 +21,10 @@ class AppError(Exception):
 
 
 class InvalidDocumentError(AppError):
-    """The submitted document is not a readable PDF."""
+    """The submitted document is not a readable PDF or image."""
 
     code = "invalid_document"
-    default_message = "The file is not a valid PDF."
+    default_message = "The file is not a valid PDF or image document."
     status_code = 400
 
 
@@ -53,10 +53,10 @@ class DocumentTooLargeError(AppError):
 
 
 class UnsupportedMediaTypeError(AppError):
-    """The upload is not an ``application/pdf`` document."""
+    """The upload is not a PDF or image document."""
 
     code = "unsupported_media_type"
-    default_message = "Only application/pdf documents are supported."
+    default_message = "Only PDF and image documents are supported."
     status_code = 415
 
 

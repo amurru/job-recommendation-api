@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import io
 from typing import Any
 
 from fastapi.testclient import TestClient
+from PIL import Image
 from pydantic import SecretStr
 
 from job_recommendation_api.api.deps import get_recommendation_service
@@ -66,7 +68,7 @@ class _FakeConverter:
     def __init__(self, markdown: str = "# Jane\nPython developer\njane@example.com") -> None:
         self._markdown = markdown
 
-    def convert(self, pdf_bytes: bytes, *, name: str) -> str:
+    def convert(self, document_bytes: bytes, *, name: str) -> str:
         return self._markdown
 
 
@@ -155,6 +157,17 @@ class TestRecommendations:
         )
         assert resp.status_code == 415
         assert resp.json()["error"]["code"] == "unsupported_media_type"
+
+    def test_recommendation_png_photo_accepted(self) -> None:
+        buf = io.BytesIO()
+        Image.new("RGB", (32, 32), color="white").save(buf, format="PNG")
+        client = _build_app(_FakeLLM())
+        resp = client.post(
+            "/api/v1/recommendations",
+            files={"file": ("photo.png", buf.getvalue(), "image/png")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["analysis"]["summary"] == "Backend engineer."
 
     def test_recommendation_413_oversized(self) -> None:
         client = _build_app(_FakeLLM(), max_upload_bytes=1024)

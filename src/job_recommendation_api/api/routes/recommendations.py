@@ -1,4 +1,4 @@
-"""Recommendation endpoint: multipart PDF upload -> validated guidance."""
+"""Recommendation endpoint: multipart PDF/photo upload -> validated guidance."""
 
 from __future__ import annotations
 
@@ -17,7 +17,15 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(tags=["recommendations"])
 
-_PDF_CONTENT_TYPE = "application/pdf"
+# Photo resumes may arrive as PDFs or as image files (jpeg/png/webp).
+_SUPPORTED_CONTENT_TYPES = frozenset(
+    {
+        "application/pdf",
+        "image/jpeg",
+        "image/png",
+        "image/webp",
+    }
+)
 
 
 @router.post("/recommendations", response_model=RecommendationResponse)
@@ -26,9 +34,11 @@ async def create_recommendation(
     service: RecommendationServiceDep,
     file: UploadFile = File(...),
 ) -> RecommendationResponse:
-    """Analyze an uploaded resume PDF and return career recommendations."""
-    if file.content_type != _PDF_CONTENT_TYPE:
-        raise UnsupportedMediaTypeError("Only application/pdf documents are supported.")
+    """Analyze an uploaded resume PDF or photo and return career recommendations."""
+    if file.content_type not in _SUPPORTED_CONTENT_TYPES:
+        raise UnsupportedMediaTypeError(
+            "Only PDF and image documents (jpeg, png, webp) are supported."
+        )
 
     # Read up to cap + 1 byte so an over-limit file is detected without
     # buffering unbounded memory.

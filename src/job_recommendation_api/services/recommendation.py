@@ -30,13 +30,13 @@ _CORRECTIVE_PROMPT = (
 )
 
 
-def _convert(converter: DocumentConverter, pdf_bytes: bytes, name: str) -> str:
+def _convert(converter: DocumentConverter, document_bytes: bytes, name: str) -> str:
     """Callable helper so the sync converter can run in a threadpool."""
-    return converter.convert(pdf_bytes, name=name)
+    return converter.convert(document_bytes, name=name)
 
 
 class RecommendationService:
-    """Single business operation turning PDF bytes into validated guidance.
+    """Single business operation turning document bytes into validated guidance.
 
     Async throughout: the sync markitdown converter runs in a threadpool; the
     LLM call is async-native. No FastAPI/HTTP imports here.
@@ -53,12 +53,11 @@ class RecommendationService:
         self._llm_client = llm_client
         self._model = model
 
-    async def recommend(self, pdf_bytes: bytes, *, name: str) -> RecommendationResponse:
-        markdown = await run_sync(_convert, self._converter, pdf_bytes, name)
+    async def recommend(self, document_bytes: bytes, *, name: str) -> RecommendationResponse:
+        markdown = await run_sync(_convert, self._converter, document_bytes, name)
         if not looks_like_resume(markdown):
             raise NotAResumeError(
-                "The uploaded document does not appear to be a resume. "
-                "Please upload a PDF resume."
+                "The uploaded document does not appear to be a resume. Please upload a PDF resume."
             )
         messages: list[Message] = [
             {"role": "system", "content": SYSTEM_PROMPT},
