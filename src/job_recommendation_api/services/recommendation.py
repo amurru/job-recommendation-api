@@ -3,6 +3,12 @@ prompt assembly -> LLM -> validate.
 
 Extraction (markdown + profile) is cached by the versioned document hash;
 the recommendation LLM call is deliberately NEVER cached (it is per-query).
+
+The sync conversion stage (SH-006) runs under an ``anyio.CapacityLimiter``
+so slow conversions cannot starve the threadpool, and (SH-008) under a
+wall-clock deadline: expiry cancels the conversion task and releases the
+limiter token. The limiter/deadline scope ONLY the sync conversion - never
+the async LLM calls (those are bounded by rate limits + provider timeouts).
 """
 
 from __future__ import annotations
@@ -10,9 +16,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+import anyio
 from anyio.to_thread import run_sync
 
-from job_recommendation_api.errors import LLMInvalidOutputError, NotAResumeError
+from job_recommendation_api.errors import (
+    DocumentConversionError,
+    LLMInvalidOutputError,
+    NotAResumeError,
+)
 from job_recommendation_api.llm.client import LLMClient
 from job_recommendation_api.schemas.recommendation import (
     RecommendationResponse,
@@ -48,6 +59,8 @@ _CORRECTIVE_PROMPT = (
     "a string is required."
 )
 
+_DEFAULT_CONVERT_DEADLINE_SECONDS = 30.0
+
 
 def _convert(converter: DocumentConverter, document_bytes: bytes, name: str) -> str:
     """Callable helper so the sync converter can run in a threadpool."""
@@ -71,6 +84,8 @@ class RecommendationService:
         profiler: ProfileExtractor,
         extraction_cache: ExtractionCache,
         injection_guard: InjectionGuard | None = None,
+        convert_limiter: anyio.CapacityLimiter | None = None,
+        convert_deadline_seconds: float = _DEFAULT_CONVERT_DEADLINE_SECONDS,
     ) -> None:
         self._converter = converter
         self._llm_client = llm_client
@@ -78,6 +93,8 @@ class RecommendationService:
         self._profiler = profiler
         self._cache = extraction_cache
         self._guard = injection_guard or InjectionGuard()
+        self.convert_limiter = convert_limiter
+        self._convert_deadline_seconds = convert_deadline_seconds
 
     async def recommend(self, document_bytes: bytes, *, name: str) -> RecommendationResponse:
         key = cache_key(document_bytes)
@@ -91,7 +108,7 @@ class RecommendationService:
             cache_state: str = "hit"
         else:
             cache_state = "miss"
-            markdown = await run_sync(_convert, self._converter, document_bytes, name)
+            markdown = await self._convert_document(document_bytes, name=name)
             guard_result = self._guard.guard(markdown)
             markdown = guard_result.cleaned_text
             injection_lines_removed = guard_result.removed_lines
@@ -145,6 +162,38 @@ class RecommendationService:
             },
         }
         return RecommendationResponse.model_validate(payload)
+
+    async def _convert_document(self, document_bytes: bytes, *, name: str) -> str:
+        """Run the sync conversion under the concurrency limiter (SH-006) and
+        the wall-clock deadline (SH-008).
+
+        The deadline covers limiter wait + conversion. On expiry the caller
+        gets ``DocumentConversionError`` immediately and the limiter token is
+        released by the exiting ``async with`` scope; the worker thread itself
+        is abandoned at the next await point (threads cannot be killed - the
+        deadline bounds request latency and pool occupancy, not CPU).
+        Converter errors (invalid document, structural caps) propagate
+        unchanged.
+        """
+        if self.convert_limiter is None:
+            return await run_sync(_convert, self._converter, document_bytes, name)
+
+        result: str | None = None
+        with anyio.move_on_after(self._convert_deadline_seconds) as scope:
+            async with self.convert_limiter:
+                result = await run_sync(
+                    _convert, self._converter, document_bytes, name, abandon_on_cancel=True
+                )
+        if scope.cancelled_caught or result is None:
+            logger.warning(
+                "Conversion deadline exceeded (%.1fs) for %s",
+                self._convert_deadline_seconds,
+                name,
+            )
+            raise DocumentConversionError(
+                "The document conversion timed out. The document may be too complex to process."
+            )
+        return result
 
     def _snapshot(self, markdown: str) -> str:
         snapshot = markdown[:MAX_RESUME_CHARS]

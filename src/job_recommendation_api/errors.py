@@ -98,3 +98,45 @@ class ConfigurationError(AppError):
     code = "configuration_error"
     default_message = "Server configuration error."
     status_code = 500
+
+
+class UnauthorizedError(AppError):
+    """Missing/invalid credentials (SH-002). Maps to 401 with
+    ``WWW-Authenticate: Bearer``."""
+
+    code = "unauthorized"
+    default_message = "A valid API key is required."
+    status_code = 401
+
+
+class RateLimitedError(AppError):
+    """The identity exceeded its request budget (SH-005). Maps to 429 with
+    ``Retry-After`` plus the ``X-RateLimit-*`` header set."""
+
+    code = "rate_limited"
+    default_message = "Rate limit exceeded."
+    status_code = 429
+
+    def __init__(
+        self,
+        detail: str | None = None,
+        *,
+        retry_after_seconds: int = 0,
+        limit: int = 0,
+        remaining: int = 0,
+        reset_epoch: float = 0.0,
+    ) -> None:
+        super().__init__(detail)
+        self.retry_after_seconds = retry_after_seconds
+        self.limit = limit
+        self.remaining = remaining
+        self.reset_epoch = reset_epoch
+
+
+class DocumentTooComplexError(AppError):
+    """The document exceeds a structural cap (SH-007): pages, page size, or
+    embedded-image count. Checked before any decoding or OCR work."""
+
+    code = "document_too_complex"
+    default_message = "The document exceeds the allowed structural limits."
+    status_code = 422

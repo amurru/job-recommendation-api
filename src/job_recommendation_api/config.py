@@ -44,6 +44,42 @@ class Settings(BaseSettings):
     max_upload_bytes: int = 10 * 1024 * 1024
     log_level: str = "INFO"
 
+    # SH-001: API-key authentication. Keys are comma-separated in the env or
+    # one-per-line in a file; the store keeps SHA-256 digests only.
+    api_keys: str = ""
+    api_keys_file: Path | None = None
+    auth_required: bool = False
+    anonymous_enabled: bool = True
+
+    # SH-004: per-identity sliding-window rate limits.
+    rate_limit_enabled: bool = True
+    rate_limit_auth_requests: int = 60
+    rate_limit_auth_window_seconds: float = 60.0
+    rate_limit_anon_requests: int = 5
+    rate_limit_anon_window_seconds: float = 3600.0
+    rate_limit_max_tracked_identities: int = 10_000
+
+    # SH-006: concurrency cap on the expensive conversion pipeline.
+    convert_concurrency: int = 4
+
+    # SH-007: PDF structural caps (checked before decode/OCR work scales
+    # with attacker-chosen numbers).
+    max_pdf_pages: int = 50
+    max_images_per_page: int = 20
+    max_page_inches: float = 30.0
+
+    # SH-008: decoded-pixel ceiling, per-image dimension cap, and the
+    # wall-clock deadline for the conversion stage.
+    max_image_pixels: int = 50_000_000
+    max_image_dimension: int = 10_000
+    convert_deadline_seconds: float = 30.0
+
+    # SH-010: interactive docs / OpenAPI availability.
+    docs_enabled: bool | None = None
+
+    # SH-012: CORS allowlist. Empty -> no CORS middleware at all.
+    cors_origins: str = ""
+
     profile_model: str = "openai/gpt-4o-mini"
     ocr_temperature: float = 0.0
     llm_temperature: float = 0.0
@@ -55,6 +91,17 @@ class Settings(BaseSettings):
 
     def has_api_key(self) -> bool:
         return bool(self.openrouter_api_key.get_secret_value().strip())
+
+    def docs_serving_enabled(self) -> bool:
+        """SH-010: docs default to development mode; explicit override wins
+        (``DOCS_ENABLED=true`` for staging, ``false`` to hide in dev)."""
+        if self.docs_enabled is not None:
+            return self.docs_enabled
+        return self.environment == "development"
+
+    def cors_origin_list(self) -> list[str]:
+        """SH-012: parsed CORS origins (empty list = middleware not installed)."""
+        return [origin.strip() for origin in self.cors_origins.split(",") if origin.strip()]
 
 
 def load_settings() -> Settings:

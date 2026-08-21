@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, HttpUrl
+from pydantic import BaseModel, ConfigDict, Field, HttpUrl, field_validator
 
 JSONObject = dict[str, Any]
 
@@ -40,7 +40,12 @@ class JobRecommendation(BaseModel):
 
 
 class LearningResource(BaseModel):
-    """A course/book/... recommended to close a skills gap."""
+    """A course/book/... recommended to close a skills gap.
+
+    SH-015/SH-ADR-006: ``url`` is https-only, enforced here at the schema
+    (not in prompt text) so it survives the ``json_object`` fallback path. A
+    non-https emission fails validation and triggers the corrective retry.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
@@ -50,6 +55,13 @@ class LearningResource(BaseModel):
     provider: str | None = None
     url: HttpUrl | None = None
     rationale: str = Field(min_length=1)
+
+    @field_validator("url")
+    @classmethod
+    def _url_must_be_https(cls, value: HttpUrl | None) -> HttpUrl | None:
+        if value is not None and value.scheme != "https":
+            raise ValueError("URL must use the https scheme.")
+        return value
 
 
 class ResumeAnalysis(BaseModel):

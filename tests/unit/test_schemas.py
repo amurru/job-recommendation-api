@@ -85,6 +85,34 @@ def test_learning_resource_optional_fields_default_none() -> None:
     assert resource.url is None
 
 
+class TestHttpsOnlyUrl:
+    """SH-015: education_materials[].url is https-only, schema-enforced."""
+
+    @staticmethod
+    def _resource(url: str | None) -> LearningResource:
+        kwargs: dict[str, object] = {"topic": "t", "kind": "book", "title": "T", "rationale": "r"}
+        if url is not None:
+            kwargs["url"] = url
+        return LearningResource.model_validate(kwargs)
+
+    def test_https_url_accepted(self) -> None:
+        resource = self._resource("https://example.com/course")
+        assert resource.url is not None
+        assert str(resource.url).startswith("https://")
+
+    def test_http_url_rejected(self) -> None:
+        with pytest.raises(ValidationError):
+            self._resource("http://example.com/course")
+
+    def test_other_schemes_rejected(self) -> None:
+        for scheme in ("ftp://example.com/f", "javascript:alert(1)", "data:text/html,x"):
+            with pytest.raises(ValidationError):
+                self._resource(scheme)
+
+    def test_missing_url_still_valid(self) -> None:
+        assert self._resource(None).url is None
+
+
 def test_rejects_unknown_fields() -> None:
     data = _valid_analysis()
     data["unexpected"] = "x"

@@ -141,7 +141,18 @@ class TestHealth:
         assert resp.status_code == 200
         body = resp.json()
         assert body["status"] == "ready"
-        assert body["model"] == "openai/gpt-4o-mini"
+        # SH-013: production anonymous callers get the minimal body; the
+        # model field is development-only (see tests/api/test_security.py
+        # for the keyed/development variants).
+        assert "model" not in body
+
+    def test_readyz_model_disclosed_with_valid_key(self) -> None:
+        """SH-013: a valid Bearer key unlocks the model disclosure in
+        production."""
+        client = _build_app(_FakeLLM(), api_keys="test-key-123")
+        resp = client.get("/readyz", headers={"Authorization": "Bearer test-key-123"})
+        assert resp.status_code == 200
+        assert resp.json()["model"] == "openai/gpt-4o-mini"
 
     def test_readyz_unready_without_key(self) -> None:
         app = create_app(make_settings(log_level="ERROR"))
@@ -170,14 +181,28 @@ class TestRecommendations:
         assert fake.calls == 1
 
     def test_recommendation_meta_opt_in(self) -> None:
+        """SH-013: include_meta is honored for keyed identities; anonymous
+        production requests silently get the default (meta omitted)."""
         fake = _FakeLLM()
-        client = _build_app(fake)
+        client = _build_app(fake, api_keys="test-key-123")
+        resp = client.post(
+            "/api/v1/recommendations?include_meta=true",
+            headers={"Authorization": "Bearer test-key-123"},
+            files={"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["meta"]["model"] == "test/model"
+
+    def test_recommendation_meta_anonymous_opt_in_ignored(self) -> None:
+        """SH-013: anonymous production requests asking for meta get the
+        default response (meta omitted), not an error."""
+        client = _build_app(_FakeLLM())
         resp = client.post(
             "/api/v1/recommendations?include_meta=true",
             files={"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")},
         )
         assert resp.status_code == 200, resp.text
-        assert resp.json()["meta"]["model"] == "test/model"
+        assert "meta" not in resp.json()
 
     def test_recommendation_meta_in_development_mode(self) -> None:
         fake = _FakeLLM()
@@ -264,15 +289,21 @@ class TestRecommendations:
 
     def test_x_cache_header_miss_then_hit(self) -> None:
         """FP-006: X-Cache header present on 200; second identical upload
-        hits the cache and returns identical analysis + meta."""
-        client = _build_app(_FakeLLM())
+        hits the cache and returns identical analysis + meta. Uses a keyed
+        request so include_meta is honored (SH-013)."""
+        client = _build_app(_FakeLLM(), api_keys="test-key-123")
+        headers = {"Authorization": "Bearer test-key-123"}
         files = {"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")}
-        first = client.post("/api/v1/recommendations?include_meta=true", files=files)
+        first = client.post(
+            "/api/v1/recommendations?include_meta=true", headers=headers, files=files
+        )
         assert first.status_code == 200, first.text
         assert first.headers["X-Cache"] == "MISS"
         assert first.json()["meta"]["cache"] == "miss"
 
-        second = client.post("/api/v1/recommendations?include_meta=true", files=files)
+        second = client.post(
+            "/api/v1/recommendations?include_meta=true", headers=headers, files=files
+        )
         assert second.status_code == 200
         assert second.headers["X-Cache"] == "HIT"
         assert second.json()["meta"]["cache"] == "hit"

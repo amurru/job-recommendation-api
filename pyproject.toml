@@ -1,7 +1,7 @@
 [project]
 name = "job-recommendation-api"
 version = "0.1.0"
-description = "A no-auth FastAPI service that turns a resume PDF into actionable career guidance via markitdown + OpenRouter LLM."
+description = "A FastAPI service that turns a resume PDF into actionable career guidance via markitdown + OpenRouter LLM, with API-key auth and rate limiting."
 readme = "README.md"
 authors = [
     { name = "Amurru Zerouk", email = "me@amurru.dev" }
