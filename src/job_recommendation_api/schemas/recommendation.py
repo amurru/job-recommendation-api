@@ -81,12 +81,16 @@ class ResponseMeta(BaseModel):
 
 
 class RecommendationResponse(BaseModel):
-    """The HTTP response envelope: analysis + runtime meta."""
+    """The HTTP response envelope: analysis + optional runtime meta.
+
+    ``meta`` is omitted from responses in production unless explicitly
+    requested (``?include_meta=true``) or the server runs in development mode.
+    """
 
     model_config = ConfigDict(extra="forbid")
 
     analysis: ResumeAnalysis
-    meta: ResponseMeta
+    meta: ResponseMeta | None = None
 
 
 # The schema sent to the LLM (ResumeAnalysis only; `meta` is runtime-only).

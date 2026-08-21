@@ -103,6 +103,7 @@ async def test_recommend_happy_path(valid_payload: dict[str, Any]) -> None:
     assert profiler.calls
     assert len(llm.calls) == 1
     assert result.analysis.summary == "Backend engineer."
+    assert result.meta is not None
     assert result.meta.model == "test/model"
     assert result.meta.cache == "miss"
     assert result.meta.markdown_length == len(converter.markdown)
@@ -126,6 +127,7 @@ async def test_recommend_cache_hit_skips_converter_and_profiler(
 
     assert converter.calls == [b"%PDF-1.4"]  # converted once only
     assert len(profiler.calls) == 1  # profiled once only
+    assert first.meta is not None and second.meta is not None
     assert first.meta.cache == "miss"
     assert second.meta.cache == "hit"
     assert second.meta.markdown_length == first.meta.markdown_length
@@ -214,6 +216,7 @@ async def test_recommend_honest_truncation_meta(valid_payload: dict[str, Any]) -
 
     result = await service.recommend(b"%PDF-1.4", name="resume.pdf")
 
+    assert result.meta is not None
     assert result.meta.markdown_truncated is True
     snapshot_len = len(long_markdown[:MAX_RESUME_CHARS] + "\n...[resume truncated]...")
     assert result.meta.markdown_length == snapshot_len
@@ -234,5 +237,6 @@ async def test_recommend_injection_lines_removed_meta(
 
     result = await service.recommend(b"%PDF-1.4", name="resume.pdf")
 
+    assert result.meta is not None
     assert result.meta.injection_lines_removed == 1
     assert "Ignore all previous" not in llm.calls[0][-1]["content"]

@@ -80,18 +80,22 @@ Example response:
         "rationale": "Strong Python and API design background aligns with the role requirements.",
         "key_skills": ["Python", "FastAPI", "PostgreSQL"]
       }
-    ],
-    "education_materials": [
-      {
-        "topic": "System Design",
-        "kind": "book",
-        "title": "Designing Data-Intensive Applications",
-        "provider": "O'Reilly",
-        "url": "https://dataintensive.net/",
-        "rationale": "Reinforces distributed systems fundamentals relevant to backend roles."
-      }
     ]
-  },
+  }
+}
+```
+
+### Response `meta` block
+
+The runtime `meta` block (model, cache state, extraction diagnostics) is
+omitted by default in production. It is included when:
+
+- the server runs with `ENVIRONMENT=development`, or
+- the request passes `?include_meta=true`:
+
+```json
+{
+  "analysis": { "...": "..." },
   "meta": {
     "model": "openai/gpt-4o-mini",
     "markdown_length": 4321,
@@ -155,6 +159,7 @@ All settings are environment-driven (`pydantic-settings`, read from `.env`):
 | `MAX_OCR_PAGES` | `10` | Per-document OCR page/call budget. |
 | `EXTRACTION_CACHE_MAX_ENTRIES` | `256` | LRU cap for the in-process extraction cache. |
 | `EXTRACTION_CACHE_TTL_SECONDS` | `3600` | Entry TTL for the extraction cache. |
+| `ENVIRONMENT` | `production` | `development` includes the response `meta` block by default. |
 
 ## Development
 

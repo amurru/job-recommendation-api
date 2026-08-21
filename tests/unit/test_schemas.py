@@ -109,6 +109,7 @@ def test_recommendation_response_includes_meta() -> None:
         analysis=analysis,
         meta=ResponseMeta(model="openai/gpt-4o-mini", markdown_length=10),
     )
+    assert response.meta is not None
     assert response.meta.model == "openai/gpt-4o-mini"
     assert response.meta.markdown_length == 10
 

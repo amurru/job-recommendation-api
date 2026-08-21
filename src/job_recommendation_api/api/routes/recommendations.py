@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from fastapi import APIRouter, File, UploadFile
+from fastapi import APIRouter, File, Query, UploadFile
 from fastapi.responses import JSONResponse
 
 from job_recommendation_api.api.deps import RecommendationServiceDep, SettingsDep
@@ -34,6 +34,11 @@ async def create_recommendation(
     settings: SettingsDep,
     service: RecommendationServiceDep,
     file: UploadFile = File(...),
+    include_meta: bool = Query(
+        False,
+        description="Include the runtime `meta` diagnostics block in the response. "
+        "Always included when the server runs in development mode.",
+    ),
 ) -> JSONResponse:
     """Analyze an uploaded resume PDF or photo and return career recommendations."""
     if file.content_type not in _SUPPORTED_CONTENT_TYPES:
@@ -52,7 +57,9 @@ async def create_recommendation(
 
     name = file.filename or "resume.pdf"
     result = await service.recommend(content, name=name)
-    response = JSONResponse(content=result.model_dump(mode="json"))
-    if result.meta.cache is not None:
+    show_meta = include_meta or settings.environment == "development"
+    payload = result.model_dump(mode="json", exclude=None if show_meta else {"meta"})
+    response = JSONResponse(content=payload)
+    if result.meta is not None and result.meta.cache is not None:
         response.headers["X-Cache"] = result.meta.cache.upper()
     return response

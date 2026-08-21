@@ -165,8 +165,29 @@ class TestRecommendations:
         body = resp.json()
         assert body["analysis"]["summary"] == "Backend engineer."
         assert body["analysis"]["jobs"][0]["title"] == "Backend Engineer"
-        assert body["meta"]["model"] == "test/model"
+        # Production default: meta is omitted unless explicitly requested.
+        assert "meta" not in body
         assert fake.calls == 1
+
+    def test_recommendation_meta_opt_in(self) -> None:
+        fake = _FakeLLM()
+        client = _build_app(fake)
+        resp = client.post(
+            "/api/v1/recommendations?include_meta=true",
+            files={"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["meta"]["model"] == "test/model"
+
+    def test_recommendation_meta_in_development_mode(self) -> None:
+        fake = _FakeLLM()
+        client = _build_app(fake, environment="development")
+        resp = client.post(
+            "/api/v1/recommendations",
+            files={"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")},
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["meta"]["model"] == "test/model"
 
     def test_recommendation_415_wrong_content_type(self) -> None:
         client = _build_app(_FakeLLM())
@@ -246,12 +267,12 @@ class TestRecommendations:
         hits the cache and returns identical analysis + meta."""
         client = _build_app(_FakeLLM())
         files = {"file": ("resume.pdf", MINIMAL_PDF, "application/pdf")}
-        first = client.post("/api/v1/recommendations", files=files)
+        first = client.post("/api/v1/recommendations?include_meta=true", files=files)
         assert first.status_code == 200, first.text
         assert first.headers["X-Cache"] == "MISS"
         assert first.json()["meta"]["cache"] == "miss"
 
-        second = client.post("/api/v1/recommendations", files=files)
+        second = client.post("/api/v1/recommendations?include_meta=true", files=files)
         assert second.status_code == 200
         assert second.headers["X-Cache"] == "HIT"
         assert second.json()["meta"]["cache"] == "hit"

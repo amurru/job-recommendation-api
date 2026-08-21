@@ -51,6 +51,7 @@ class Settings(BaseSettings):
     max_ocr_pages: int = 10
     extraction_cache_max_entries: int = 256
     extraction_cache_ttl_seconds: int = 3600
+    environment: Literal["development", "production"] = "production"
 
     def has_api_key(self) -> bool:
         return bool(self.openrouter_api_key.get_secret_value().strip())
